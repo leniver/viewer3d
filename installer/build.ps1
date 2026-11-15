@@ -123,12 +123,17 @@ try {
     Copy-Item -LiteralPath (Join-Path $root 'LICENSE') -Destination (Join-Path $stage 'LICENSE.txt')
     Copy-Item -LiteralPath (Join-Path $root 'README.md') -Destination $stage
     # Open CASCADE is linked statically: its LGPL 2.1 text and exception must ship
-    # with the binary. The build copies them to target\OCCT.
-    $occt = Join-Path $root 'target\OCCT'
-    $occtTexts = @{ 'LICENSE_LGPL_21.txt' = 'OpenCASCADE-LGPL-2.1.txt'; 'OCCT_LGPL_EXCEPTION.txt' = 'OpenCASCADE-LGPL-exception.txt' }
+    # with the binary. Taken from the source vendored by the occt-sys crate: the
+    # OCCT install step does not copy them on every machine.
+    $resolved = Invoke-Native cargo @('metadata', '--format-version', '1', '--locked',
+                                      '--filter-platform', 'x86_64-pc-windows-msvc') | Out-String | ConvertFrom-Json
+    $occtSys = @($resolved.packages | Where-Object { $_.name -eq 'occt-sys' })
+    if ($occtSys.Count -ne 1) { throw "expected one occt-sys package in cargo metadata, found $($occtSys.Count)" }
+    $occtSource = Join-Path (Split-Path -Parent $occtSys[0].manifest_path) 'OCCT'
+    $occtTexts = [ordered]@{ 'LICENSE_LGPL_21.txt' = 'OpenCASCADE-LGPL-2.1.txt'; 'OCCT_LGPL_EXCEPTION.txt' = 'OpenCASCADE-LGPL-exception.txt' }
     foreach ($source in $occtTexts.Keys) {
-        $path = Join-Path $occt $source
-        if (-not (Test-Path -LiteralPath $path)) { throw "$path not found (it comes with the Open CASCADE build)" }
+        $path = Join-Path $occtSource $source
+        if (-not (Test-Path -LiteralPath $path)) { throw "$path not found in the occt-sys sources" }
         Copy-Item -LiteralPath $path -Destination (Join-Path $stage $occtTexts[$source])
     }
     if ($SkipNotices) {
