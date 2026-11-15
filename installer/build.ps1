@@ -80,10 +80,21 @@ function Get-ChangelogSection {
         if ($lines[$i] -match $heading) { $start = $i + 1; break }
     }
     if ($start -lt 0) { throw "CHANGELOG.md has no section for $Version (expected a '## [$Version] - date' heading)" }
+    # GitHub shows every line break of a release description, so lines wrapped
+    # in CHANGELOG.md are joined back (list items, paragraphs; not code blocks).
     $section = New-Object System.Collections.Generic.List[string]
+    $inCode = $false
     for ($i = $start; $i -lt $lines.Count; $i++) {
-        if ($lines[$i] -match '^## \[' -or $lines[$i] -match '^\[[^\]]+\]: ') { break }
-        $section.Add($lines[$i])
+        $line = $lines[$i]
+        if ($line -match '^## \[' -or $line -match '^\[[^\]]+\]: ') { break }
+        if ($line.TrimStart().StartsWith('```')) { $inCode = -not $inCode; $section.Add($line); continue }
+        $continues = -not $inCode -and $section.Count -gt 0 -and $section[$section.Count - 1].Trim() -ne '' -and
+                     $line.Trim() -ne '' -and $line -notmatch '^\s*([-*+]|\d+\.)\s|^\s*#|^\s*\||^\s*>'
+        if ($continues) {
+            $section[$section.Count - 1] = $section[$section.Count - 1].TrimEnd() + ' ' + $line.Trim()
+        } else {
+            $section.Add($line)
+        }
     }
     return ($section -join "`n").Trim()
 }
