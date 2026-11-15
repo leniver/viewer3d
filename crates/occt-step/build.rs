@@ -17,11 +17,8 @@ fn main() {
 
     println!("cargo:rerun-if-env-changed=OCCT_BUILD_JOBS");
 
-    let occt = occt_sys::occt_path();
+    let occt = occt_dir();
     std::fs::create_dir_all(&occt).expect("cannot create the OCCT directory");
-    // Lexical clean-up only: canonicalize() yields \\?\ paths on Windows,
-    // which cl.exe does not accept as include directories.
-    let occt = normalize(&occt);
     let marker = occt.join(OCCT_MARKER);
 
     // The OCCT tree is shared by every profile and by IDE `cargo check` runs:
@@ -43,7 +40,7 @@ fn main() {
         } else {
             unsafe { env::set_var("NUM_JOBS", jobs.to_string()) };
         }
-        occt_sys::build_occt();
+        build_occt_into(&occt);
         std::fs::write(&marker, b"ok").expect("cannot write OCCT build marker");
     }
     drop(lock);
@@ -148,6 +145,46 @@ fn prepare_msvc_cmake(jobs: usize) {
 }
 
 /// Resolves `.` and `..` components without touching the file system.
+/// Where OCCT is built and installed: `OCCT` in the build directory root
+/// (normally `target`; `target/<triple>` for cross builds), so every profile
+/// shares one build. The root is found above the `build` folder that holds the
+/// build-script outputs, whatever Cargo's layout below it:
+/// `<profile>/build/<crate>-<hash>/out` until Cargo 1.9x, then
+/// `<profile>/build/<crate>/<hash>/out`.
+///
+/// The path is cleaned up lexically only: canonicalize() yields `\\?\` paths on
+/// Windows, which cl.exe does not accept as include directories.
+fn occt_dir() -> PathBuf {
+    let out_dir = normalize(Path::new(&env::var_os("OUT_DIR").expect("OUT_DIR is not set")));
+    out_dir
+        .ancestors()
+        .find(|dir| dir.file_name().is_some_and(|name| name == "build"))
+        .and_then(|build| build.parent()?.parent())
+        .map(|root| root.join("OCCT"))
+        // Unknown layout: occt-sys's own choice (may be one build per profile).
+        .unwrap_or_else(|| normalize(&occt_sys::occt_path()))
+}
+
+/// Runs `occt_sys::build_occt()` so that it installs into `occt`.
+///
+/// occt-sys installs into `OUT_DIR/../../../../OCCT`, which assumes Cargo's
+/// former layout; with the newer one it lands in each profile's folder (one
+/// OCCT build per profile, outside `occt`). OUT_DIR is therefore pointed four
+/// levels below `occt`'s parent for the duration of the call.
+fn build_occt_into(occt: &Path) {
+    assert_eq!(occt.file_name().and_then(|n| n.to_str()), Some("OCCT"), "unexpected OCCT folder {}", occt.display());
+    // Real folders: on Linux, `..` is resolved through existing directories.
+    let anchor = occt.join("out-dir-anchor").join("a").join("b");
+    std::fs::create_dir_all(&anchor).expect("cannot create the OCCT out-dir anchor");
+    let real_out_dir = env::var_os("OUT_DIR").expect("OUT_DIR is not set");
+    // SAFETY: build scripts are single-threaded; nothing else reads the
+    // environment concurrently.
+    unsafe { env::set_var("OUT_DIR", &anchor) };
+    assert_eq!(normalize(&occt_sys::occt_path()), occt, "occt-sys no longer installs into OUT_DIR/../../../../OCCT");
+    occt_sys::build_occt();
+    unsafe { env::set_var("OUT_DIR", real_out_dir) };
+}
+
 fn normalize(path: &Path) -> PathBuf {
     use std::path::Component;
     let mut out = PathBuf::new();
