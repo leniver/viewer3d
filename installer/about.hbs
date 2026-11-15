@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3D Viewer third-party licences</title>
+<style>
+  body { font-family: system-ui, "Segoe UI", sans-serif; max-width: 920px; margin: 2em auto; padding: 0 16px; line-height: 1.5; color: #1d1f23; background: #fff; }
+  h1, h2, h3 { line-height: 1.25; }
+  pre { white-space: pre-wrap; background: #f3f4f6; padding: 1em; border-radius: 6px; font-size: 0.85em; }
+  ul.crates { columns: 2; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #e3e5e8; background: #17191c; }
+    pre { background: #22252a; }
+    a { color: #8ab4f8; }
+  }
+</style>
+</head>
+<body>
+<h1>Third-party licences</h1>
+<p>3D Viewer is released under the MIT licence (see <code>LICENSE.txt</code>). It includes the third-party software listed below.</p>
+
+<h2>Open CASCADE Technology</h2>
+<p>This software makes use of facilities provided by the Open CASCADE Technology software
+(<a href="https://dev.opencascade.org">dev.opencascade.org</a>), version 7.8.1, for STEP, IGES and BREP files.
+Open CASCADE Technology is licensed under the GNU Lesser General Public License version 2.1 with the
+Open CASCADE exception version 1.0: see <code>OpenCASCADE-LGPL-2.1.txt</code> and
+<code>OpenCASCADE-LGPL-exception.txt</code>. Its source code is available from
+<a href="https://github.com/Open-Cascade-SAS/OCCT">github.com/Open-Cascade-SAS/OCCT</a> and in the
+<a href="https://crates.io/crates/occt-sys">occt-sys</a> crate; the complete source code of 3D Viewer is at
+<a href="https://github.com/leniver/viewer3d">github.com/leniver/viewer3d</a>, so the program can be rebuilt
+with a modified version of the library.</p>
+
+<h2>Rust crates</h2>
+<ul>
+{{#each overview}}
+  <li><a href="#{{id}}">{{name}}</a> ({{count}})</li>
+{{/each}}
+</ul>
+
+{{#each licenses}}
+<h3 id="{{id}}">{{name}}</h3>
+<p>Used by:</p>
+<ul class="crates">
+{{#each used_by}}
+  <li><a href="{{#if crate.repository}}{{crate.repository}}{{else}}https://crates.io/crates/{{crate.name}}{{/if}}">{{crate.name}} {{crate.version}}</a></li>
+{{/each}}
+</ul>
+<pre>{{text}}</pre>
+{{/each}}
+</body>
+</html>

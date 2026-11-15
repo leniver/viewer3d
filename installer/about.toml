@@ -1,0 +1,33 @@
+# cargo-about configuration for THIRD-PARTY-LICENSES.html, shipped with the
+# release builds (installer/build.ps1). A dependency whose licence is not in
+# this list stops the build, so a new licence gets reviewed before release.
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Unlicense",
+    "CC0-1.0",
+    "MIT-0",
+    "0BSD",
+    "NCSA",
+    # Fonts built into egui.
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+]
+targets = ["x86_64-pc-windows-msvc"]
+# Only what ends up in the executable. Open CASCADE (LGPL 2.1 + exception) is
+# compiled through a build dependency; build.ps1 ships its licence texts and the
+# template names it.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+
+# The workspace's own crates (publish = false) are covered by LICENSE.
+[private]
+ignore = true

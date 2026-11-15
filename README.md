@@ -18,6 +18,20 @@ planned (all dependencies are cross-platform).
 
 Not supported yet: Draco / meshopt compressed glTF, KTX2 textures.
 
+## Installing (Windows 10/11, 64-bit)
+
+Download from [Releases](https://github.com/leniver/viewer3d/releases):
+
+- `viewer3d-<version>-setup.exe` installs for the current user without
+  administrator rights (all users can be chosen on the first page), adds a Start
+  menu shortcut and, optionally, the "Open with" entry for 3D files. Uninstall
+  from Settings → Apps.
+- `viewer3d-<version>-windows-x64.zip` is the portable version: extract it and
+  run `viewer3d.exe`.
+
+The files are not code-signed yet, so Windows SmartScreen may warn on first
+launch: *More info* → *Run anyway*. `SHA256SUMS.txt` lists the checksums.
+
 ## Using it
 
 - Open: **Ctrl+O**, drag & drop, the *Recent* menu, or `viewer3d model.glb`.
@@ -83,6 +97,16 @@ The first build compiles OpenCASCADE (a few tens of minutes, once; the result in
 one project at a time with a bounded number of compiler processes
 (`OCCT_BUILD_JOBS` overrides it). To build without STEP/IGES support:
 `cargo build --release --no-default-features`.
+
+### Release packages
+
+`installer\build.ps1` builds the installer, the portable zip and their
+checksums into `target\dist` (needs [Inno Setup 6](https://jrsoftware.org/isinfo.php)
+and `cargo install cargo-about`). To publish a version: update the version in
+`Cargo.toml` and its section in `CHANGELOG.md`, then push a `v<version>` tag.
+The *Release* workflow builds and tests on GitHub Actions and creates a draft
+release with the files, to check and publish by hand. Running the workflow
+manually builds the same files as a workflow artifact, without a release.
 
 ## Licence
 

@@ -8,7 +8,9 @@ fn main() {
         res.set_icon("assets/icon.ico")
             .set("ProductName", "3D Viewer")
             .set("FileDescription", "3D Viewer")
-            .set("OriginalFilename", "viewer3d.exe");
+            .set("OriginalFilename", "viewer3d.exe")
+            .set("CompanyName", "leniver")
+            .set("LegalCopyright", "Copyright (c) 2026 leniver");
         if let Err(e) = res.compile() {
             println!("cargo:warning=could not embed the Windows icon: {e}");
         }
