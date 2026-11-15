@@ -1,0 +1,19 @@
+# Build output (also holds the OpenCASCADE build, target/OCCT)
+/target
+**/*.rs.bk
+*.pdb
+
+# Editors and IDEs
+.vscode/
+.idea/
+.vs/
+*.swp
+*~
+
+# Local tool settings
+/.claude/
+
+# Operating system files
+Thumbs.db
+desktop.ini
+.DS_Store

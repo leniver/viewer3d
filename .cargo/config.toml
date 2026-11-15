@@ -1,0 +1,4 @@
+[build]
+# Leave two logical processors free for the rest of the system (also limits
+# the parallel jobs handed to build scripts such as the OpenCASCADE build).
+jobs = -2

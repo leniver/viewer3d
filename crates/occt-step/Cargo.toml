@@ -1,0 +1,13 @@
+[package]
+name = "occt-step"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "STEP / IGES / BREP tessellation through OpenCASCADE"
+license = "MIT"
+
+[dependencies]
+
+[build-dependencies]
+occt-sys = "7.8.1"
+cc = "1"
