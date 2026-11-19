@@ -12,16 +12,40 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 /// Shared between the loader thread and the UI: progress fraction, current
 /// stage, and a cancel flag.
-#[derive(Default)]
 pub struct Progress {
     fraction: AtomicU32,
     cancelled: AtomicBool,
     stage: Mutex<String>,
+    /// Part of the bar that `set(0.0..=1.0)` fills (see [`Progress::set_range`]).
+    range_start: AtomicU32,
+    range_end: AtomicU32,
+}
+
+impl Default for Progress {
+    fn default() -> Self {
+        Self {
+            fraction: AtomicU32::new(0),
+            cancelled: AtomicBool::new(false),
+            stage: Mutex::new(String::new()),
+            range_start: AtomicU32::new(0f32.to_bits()),
+            range_end: AtomicU32::new(1f32.to_bits()),
+        }
+    }
 }
 
 impl Progress {
     pub fn set(&self, fraction: f32) {
-        self.fraction.store(fraction.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+        let start = f32::from_bits(self.range_start.load(Ordering::Relaxed));
+        let end = f32::from_bits(self.range_end.load(Ordering::Relaxed));
+        let value = start + fraction.clamp(0.0, 1.0) * (end - start);
+        self.fraction.store(value.to_bits(), Ordering::Relaxed);
+    }
+
+    /// Makes later `set(0.0..=1.0)` calls fill only `start..end` of the bar,
+    /// so a loader can run another one as one of its steps.
+    pub fn set_range(&self, start: f32, end: f32) {
+        self.range_start.store(start.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
+        self.range_end.store(end.clamp(0.0, 1.0).to_bits(), Ordering::Relaxed);
     }
 
     pub fn fraction(&self) -> f32 {
@@ -368,6 +392,18 @@ pub fn percent_decode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn progress_range() {
+        let p = Progress::default();
+        p.set(0.5);
+        assert_eq!(p.fraction(), 0.5);
+        p.set_range(0.6, 1.0);
+        p.set(0.5);
+        assert!((p.fraction() - 0.8).abs() < 1e-6);
+        p.set(2.0);
+        assert_eq!(p.fraction(), 1.0);
+    }
 
     #[test]
     fn cube_keeps_sharp_edges() {

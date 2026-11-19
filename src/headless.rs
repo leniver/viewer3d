@@ -2,7 +2,7 @@
 //! (thumbnails, batch checks, automated tests).
 
 use crate::camera::Camera;
-use crate::loaders::Progress;
+use crate::loaders::{LoadOptions, Progress};
 use crate::model::load_model;
 use crate::render::{DisplayMode, GpuContext, Renderer, ViewParams};
 use crate::scene::UpAxis;
@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 pub const USAGE: &str = "viewer3d --render <model> <output.png> [--size WxH] [--yaw DEG] [--pitch DEG]
                  [--wire | --shaded-wire] [--light] [--flat] [--no-grid] [--no-edges]
-                 [--time SECONDS] [--up y|z] [--verbose]";
+                 [--time SECONDS] [--up y|z] [--blender PATH] [--verbose]";
 
 struct Options {
     input: PathBuf,
@@ -30,6 +30,7 @@ struct Options {
     edges: bool,
     time: Option<f32>,
     up: Option<UpAxis>,
+    blender: Option<PathBuf>,
     verbose: bool,
 }
 
@@ -49,6 +50,7 @@ fn parse(args: &[String]) -> Result<Options> {
         edges: true,
         time: None,
         up: None,
+        blender: None,
         verbose: false,
     };
     let mut it = args.iter();
@@ -66,6 +68,7 @@ fn parse(args: &[String]) -> Result<Options> {
             "--yaw" => o.yaw = Some(num(it.next(), "--yaw")?.to_radians()),
             "--pitch" => o.pitch = Some(num(it.next(), "--pitch")?.to_radians()),
             "--time" => o.time = Some(num(it.next(), "--time")?),
+            "--blender" => o.blender = Some(PathBuf::from(it.next().ok_or_else(|| anyhow!("--blender needs a path"))?)),
             "--wire" => o.display = DisplayMode::Wireframe,
             "--shaded-wire" => o.display = DisplayMode::ShadedWireframe,
             "--light" => o.background = Background::Light,
@@ -103,7 +106,8 @@ pub fn run(args: &[String]) -> Result<()> {
     println!("GPU: {}", ctx.adapter_name);
 
     let progress = Progress::default();
-    let mut model = load_model(&ctx, &o.input, &progress, 1).map_err(|e| anyhow!(e))?;
+    let options = LoadOptions { blender: o.blender.clone() };
+    let mut model = load_model(&ctx, &o.input, &progress, &options, 1)?;
     if let Some(up) = o.up {
         model.set_up(&ctx, up);
     }
@@ -144,10 +148,14 @@ pub fn run(args: &[String]) -> Result<()> {
         .with_context(|| format!("cannot write '{}'", o.output.display()))?;
 
     let s = &model.stats;
+    let format = match &model.scene.converted_with {
+        Some(by) => format!("{} (converted with {by})", model.format.name()),
+        None => model.format.name().to_owned(),
+    };
     println!(
         "{}: {} | {} triangles, {} vertices, {} points, {} materials, {} textures, {} animations | loaded in {:.2}s",
         model.name(),
-        model.format.name(),
+        format,
         s.triangles,
         s.vertices,
         s.points,

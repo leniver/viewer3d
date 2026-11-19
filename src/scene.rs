@@ -17,6 +17,8 @@ pub struct Scene {
     pub up_axis: UpAxis,
     /// Length unit, when the format defines one (e.g. "mm").
     pub unit: Option<String>,
+    /// Program that converted the file for display (e.g. "Blender 5.2.3").
+    pub converted_with: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]

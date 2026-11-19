@@ -1,8 +1,8 @@
 //! The application window: toolbar, viewport, animation bar and info panel.
 
 use crate::camera::Camera;
-use crate::loaders::{self, SUPPORTED_EXTENSIONS};
-use crate::model::{LoadJob, LoadOutcome, Model};
+use crate::loaders::{self, LoadOptions, SUPPORTED_EXTENSIONS};
+use crate::model::{LoadError, LoadJob, LoadOutcome, Model};
 use crate::render::{DisplayMode, GpuContext, Grid, Renderer, ViewParams};
 use crate::scene::{Aabb, UpAxis};
 use crate::settings::{Background, LightingPreset, Settings};
@@ -12,7 +12,7 @@ use glam::Vec3;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Frame interval while an animation plays (60 frames per second).
 const ANIMATION_FRAME: Duration = Duration::from_micros(16_667);
@@ -20,6 +20,7 @@ const ANIMATION_FRAME: Duration = Duration::from_micros(16_667);
 enum DialogResult {
     Open(Option<PathBuf>),
     Screenshot(Option<PathBuf>),
+    Blender(Option<PathBuf>),
 }
 
 /// Inputs of the last rendered frame; the 3D view is only redrawn when they change.
@@ -49,6 +50,13 @@ pub struct ViewerApp {
     loading: Option<LoadJob>,
     camera: Camera,
     error: Option<String>,
+    /// The error is a missing Blender: the banner offers to choose one.
+    error_needs_blender: bool,
+    /// File whose loading failed, opened again once Blender has been chosen.
+    failed_path: Option<PathBuf>,
+    /// Blender used for .blend files, as shown in the `?` menu (refreshed
+    /// every few seconds while the menu is open: Blender may be installed meanwhile).
+    blender_status: Option<(Instant, String)>,
     last_render: Option<RenderKey>,
     generation: u64,
     dialog: Option<Receiver<DialogResult>>,
@@ -93,6 +101,9 @@ impl ViewerApp {
             loading: None,
             camera: Camera::default(),
             error: None,
+            error_needs_blender: false,
+            failed_path: None,
+            blender_status: None,
             last_render: None,
             generation: 0,
             dialog: None,
@@ -112,9 +123,12 @@ impl ViewerApp {
             job.progress.cancel();
         }
         self.error = None;
+        self.error_needs_blender = false;
         self.generation += 1;
         let repaint_ctx = ectx.clone();
-        self.loading = Some(LoadJob::spawn(self.ctx.clone(), path, self.generation, move || repaint_ctx.request_repaint()));
+        let options = LoadOptions { blender: self.settings.blender_path.clone() };
+        self.loading =
+            Some(LoadJob::spawn(self.ctx.clone(), path, options, self.generation, move || repaint_ctx.request_repaint()));
     }
 
     fn poll_loading(&mut self) {
@@ -131,14 +145,17 @@ impl ViewerApp {
                 self.settings.add_recent(model.path.clone());
                 self.model = Some(*model);
                 self.loading = None;
+                self.failed_path = None;
                 self.reset_view = true;
             }
-            LoadOutcome::Failed(msg) => {
+            LoadOutcome::Failed(LoadError::Cancelled) => self.loading = None,
+            LoadOutcome::Failed(e) => {
                 let name = job.path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-                self.error = Some(format!("Cannot open {name}: {msg}"));
+                self.error = Some(format!("Cannot open {name}: {e}"));
+                self.error_needs_blender = matches!(e, LoadError::NeedsBlender(_));
+                self.failed_path = Some(job.path.clone());
                 self.loading = None;
             }
-            LoadOutcome::Cancelled => self.loading = None,
         }
     }
 
@@ -183,6 +200,66 @@ impl ViewerApp {
         self.dialog = Some(rx);
     }
 
+    fn blender_dialog(&mut self) {
+        if self.dialog.is_some() {
+            return;
+        }
+        let start = self
+            .settings
+            .blender_path
+            .as_ref()
+            .and_then(|p| p.parent().map(Path::to_path_buf))
+            .or_else(|| loaders::find_blender(None).ok().and_then(|b| b.path.parent().map(Path::to_path_buf)));
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let mut d = rfd::FileDialog::new().set_title("Choose the Blender program (blender.exe)");
+            if cfg!(windows) {
+                d = d.add_filter("Blender", &["exe"]);
+            }
+            if let Some(dir) = start {
+                d = d.set_directory(dir);
+            }
+            let _ = tx.send(DialogResult::Blender(d.pick_file()));
+        });
+        self.dialog = Some(rx);
+    }
+
+    /// Sets the Blender for .blend files (None: found automatically) and opens
+    /// again a .blend file that failed for want of Blender.
+    fn set_blender(&mut self, path: Option<PathBuf>, ectx: &egui::Context) {
+        if let Some(p) = &path
+            && !loaders::is_blender_program(p)
+        {
+            self.error = Some(format!("{} is not the Blender program (blender.exe)", p.display()));
+            self.error_needs_blender = true;
+            return;
+        }
+        self.settings.blender_path = path.map(|p| loaders::describe_blender(&p).map_or(p, |b| b.path));
+        self.blender_status = None;
+        let is_blend = |p: &PathBuf| {
+            p.extension().and_then(|e| e.to_str()).and_then(loaders::Format::from_extension) == Some(loaders::Format::Blend)
+        };
+        if let Some(p) = self.failed_path.take().filter(is_blend) {
+            self.open(p, ectx);
+        } else if self.error_needs_blender {
+            self.error = None;
+            self.error_needs_blender = false;
+        }
+    }
+
+    /// One-line description of the Blender used for .blend files.
+    fn blender_status(&mut self) -> String {
+        let fresh = self.blender_status.as_ref().is_some_and(|(at, _)| at.elapsed() < Duration::from_secs(3));
+        if !fresh {
+            let text = match loaders::find_blender(self.settings.blender_path.as_deref()) {
+                Ok(b) => format!("{} — {}", b.label(), b.path.display()),
+                Err(e) => e.to_string(),
+            };
+            self.blender_status = Some((Instant::now(), text));
+        }
+        self.blender_status.as_ref().map(|(_, t)| t.clone()).unwrap_or_default()
+    }
+
     fn current_dir(&self) -> Option<PathBuf> {
         self.model
             .as_ref()
@@ -201,6 +278,10 @@ impl ViewerApp {
             Ok(DialogResult::Screenshot(Some(path))) => {
                 self.dialog = None;
                 self.save_screenshot(&path);
+            }
+            Ok(DialogResult::Blender(Some(path))) => {
+                self.dialog = None;
+                self.set_blender(Some(path), ectx);
             }
             Ok(_) => self.dialog = None,
             Err(std::sync::mpsc::TryRecvError::Empty) => ectx.request_repaint_after(Duration::from_millis(100)),
@@ -414,6 +495,23 @@ impl ViewerApp {
                         }
                     }
                     ui.separator();
+                    ui.label(egui::RichText::new("Blender (for .blend files)").strong());
+                    let status = self.blender_status();
+                    ui.label(status);
+                    ui.horizontal(|ui| {
+                        if ui.button("Choose Blender…").clicked() {
+                            self.blender_dialog();
+                            ui.close();
+                        }
+                        if self.settings.blender_path.is_some()
+                            && ui.button("Find automatically").on_hover_text("Use the newest installed Blender").clicked()
+                        {
+                            let ectx = ui.ctx().clone();
+                            self.set_blender(None, &ectx);
+                            ui.close();
+                        }
+                    });
+                    ui.separator();
                     ui.label(format!("GPU: {}", self.ctx.adapter_name));
                 });
                 ui.toggle_value(&mut self.settings.show_info, "ℹ Info").on_hover_text("Model information (I)");
@@ -493,6 +591,9 @@ impl ViewerApp {
                     ui.end_row();
                 };
                 row("Format", m.format.name().to_owned());
+                if let Some(by) = &m.scene.converted_with {
+                    row("Converted with", by.clone());
+                }
                 row("File size", human_bytes(m.file_size));
                 row("Load time", format!("{:.2} s", m.load_time.as_secs_f32()));
                 row("Dimensions", format!("{} × {} × {} {unit}", fmt_num(size.x), fmt_num(size.y), fmt_num(size.z)));
@@ -697,7 +798,7 @@ impl ViewerApp {
             painter.text(
                 c + Vec2::new(0.0, 34.0),
                 Align2::CENTER_CENTER,
-                "glTF · GLB · FBX · OBJ · STL · PLY · 3MF · STEP · IGES",
+                "glTF · GLB · FBX · OBJ · STL · PLY · 3MF · STEP · IGES · BLEND",
                 FontId::proportional(13.0),
                 text_color.gamma_multiply(0.6),
             );
@@ -744,11 +845,15 @@ impl ViewerApp {
         // Error banner.
         if let Some(err) = self.error.clone() {
             let mut close = false;
+            let mut choose_blender = false;
             egui::Area::new(egui::Id::unique("error")).fixed_pos(rect.left_top() + Vec2::new(12.0, 12.0)).show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style()).fill(Color32::from_rgb(120, 30, 30)).show(ui, |ui| {
                     ui.set_max_width(rect.width() - 48.0);
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new(err).color(Color32::WHITE));
+                        if self.error_needs_blender && ui.button("Choose Blender…").clicked() {
+                            choose_blender = true;
+                        }
                         if ui.button("✕").clicked() {
                             close = true;
                         }
@@ -757,6 +862,10 @@ impl ViewerApp {
             });
             if close {
                 self.error = None;
+                self.error_needs_blender = false;
+            }
+            if choose_blender {
+                self.blender_dialog();
             }
         }
     }

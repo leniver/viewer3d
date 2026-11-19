@@ -1,6 +1,7 @@
 //! File loading: format detection, dispatch to the format loaders and common
 //! post-processing.
 
+mod blend;
 mod fbx;
 mod gltf;
 mod ply;
@@ -15,9 +16,10 @@ use anyhow::{Context, Result, anyhow, bail};
 use glam::{Mat4, Vec3};
 use rayon::prelude::*;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
+pub use blend::{BlenderNotFound, describe as describe_blender, find_blender, is_blender_program};
 pub use util::{Cancelled, Progress};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -32,6 +34,7 @@ pub enum Format {
     Step,
     Iges,
     Brep,
+    Blend,
 }
 
 impl Format {
@@ -47,6 +50,7 @@ impl Format {
             Format::Step => "STEP",
             Format::Iges => "IGES",
             Format::Brep => "OpenCASCADE BREP",
+            Format::Blend => "Blender",
         }
     }
 
@@ -62,6 +66,7 @@ impl Format {
             "step" | "stp" | "p21" => Format::Step,
             "iges" | "igs" => Format::Iges,
             "brep" | "brp" => Format::Brep,
+            "blend" => Format::Blend,
             _ => return None,
         })
     }
@@ -72,6 +77,8 @@ impl Format {
         let trimmed = text.trim_start();
         if head.starts_with(b"glTF") {
             Some(Format::Glb)
+        } else if head.starts_with(b"BLENDER") {
+            Some(Format::Blend)
         } else if head.starts_with(b"Kaydara FBX Binary") || trimmed.starts_with("; FBX") {
             Some(Format::Fbx)
         } else if head.starts_with(b"ply") {
@@ -100,7 +107,7 @@ impl Format {
 
 /// Extensions offered in the open dialog.
 pub const SUPPORTED_EXTENSIONS: &[&str] = &[
-    "gltf", "glb", "vrm", "obj", "fbx", "stl", "ply", "3mf", "step", "stp", "iges", "igs", "brep", "brp",
+    "gltf", "glb", "vrm", "obj", "fbx", "stl", "ply", "3mf", "step", "stp", "iges", "igs", "brep", "brp", "blend",
 ];
 
 pub fn is_supported(path: &Path) -> bool {
@@ -141,11 +148,20 @@ pub struct LoadedModel {
     pub load_time: Duration,
 }
 
+/// Choices of the user that affect loading.
+#[derive(Clone, Debug, Default)]
+pub struct LoadOptions {
+    /// Blender program for .blend files (None: `VIEWER3D_BLENDER`, else the
+    /// newest installed Blender).
+    pub blender: Option<PathBuf>,
+}
+
 /// Collects warnings from any thread.
 pub struct LoadCtx<'a> {
     pub path: &'a Path,
     pub dir: &'a Path,
     pub progress: &'a Progress,
+    pub options: &'a LoadOptions,
     warnings: Mutex<Vec<String>>,
 }
 
@@ -161,7 +177,7 @@ impl LoadCtx<'_> {
 
 /// Loads any supported file. Runs on a worker thread; panics inside the
 /// format parsers are turned into errors so a bad file never crashes the app.
-pub fn load_file(path: &Path, progress: &Progress) -> Result<LoadedModel> {
+pub fn load_file(path: &Path, progress: &Progress, options: &LoadOptions) -> Result<LoadedModel> {
     let start = Instant::now();
     let meta = std::fs::metadata(path).with_context(|| format!("cannot open '{}'", path.display()))?;
     if !meta.is_file() {
@@ -173,7 +189,7 @@ pub fn load_file(path: &Path, progress: &Progress) -> Result<LoadedModel> {
     }
 
     let dir = path.parent().unwrap_or(Path::new("."));
-    let ctx = LoadCtx { path, dir, progress, warnings: Mutex::new(Vec::new()) };
+    let ctx = LoadCtx { path, dir, progress, options, warnings: Mutex::new(Vec::new()) };
     progress.set_stage("Reading file");
     progress.set(0.0);
 
@@ -184,6 +200,7 @@ pub fn load_file(path: &Path, progress: &Progress) -> Result<LoadedModel> {
             Format::Stl => stl::load(&ctx),
             Format::Ply => ply::load(&ctx),
             Format::ThreeMf => threemf::load(&ctx),
+            Format::Blend => blend::load(&ctx),
             #[cfg(feature = "step")]
             Format::Step | Format::Iges | Format::Brep => step::load(&ctx, format),
             #[cfg(not(feature = "step"))]
@@ -432,6 +449,8 @@ mod tests {
         assert_eq!(Format::from_extension("GLB"), Some(Format::Glb));
         assert_eq!(Format::from_extension("stp"), Some(Format::Step));
         assert_eq!(Format::from_extension("3mf"), Some(Format::ThreeMf));
+        assert_eq!(Format::from_extension("Blend"), Some(Format::Blend));
+        assert_eq!(Format::from_extension("blend1"), None);
         assert_eq!(Format::from_extension("txt"), None);
     }
 
@@ -442,5 +461,6 @@ mod tests {
         assert_eq!(Format::sniff(b"ISO-10303-21;\nHEADER;"), Some(Format::Step));
         assert_eq!(Format::sniff(b"solid cube\n facet normal 0 0 1\n"), Some(Format::Stl));
         assert_eq!(Format::sniff(b"Kaydara FBX Binary  \0"), Some(Format::Fbx));
+        assert_eq!(Format::sniff(b"BLENDER-v502REND"), Some(Format::Blend));
     }
 }

@@ -2,7 +2,7 @@
 //! background loading job that produces it.
 
 use crate::anim::{Animator, Pose};
-use crate::loaders::{self, Cancelled, Format, Progress, Stats};
+use crate::loaders::{self, BlenderNotFound, Cancelled, Format, LoadOptions, Progress, Stats};
 use crate::render::{GpuContext, GpuScene};
 use crate::scene::{Aabb, Scene, UpAxis};
 use glam::Mat4;
@@ -96,11 +96,43 @@ impl Model {
     }
 }
 
+/// Why a model could not be loaded.
+#[derive(Debug)]
+pub enum LoadError {
+    Cancelled,
+    /// A .blend file and no usable Blender: the user can install or choose one.
+    NeedsBlender(String),
+    Failed(String),
+}
+
+impl std::fmt::Display for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoadError::Cancelled => f.write_str("loading cancelled"),
+            LoadError::NeedsBlender(msg) | LoadError::Failed(msg) => f.write_str(msg),
+        }
+    }
+}
+
+impl std::error::Error for LoadError {}
+
 /// Parses a file and uploads it to the GPU (runs on a worker thread).
-pub fn load_model(ctx: &Arc<GpuContext>, path: &std::path::Path, progress: &Progress, generation: u64) -> Result<Model, String> {
+pub fn load_model(
+    ctx: &Arc<GpuContext>,
+    path: &std::path::Path,
+    progress: &Progress,
+    options: &LoadOptions,
+    generation: u64,
+) -> Result<Model, LoadError> {
     crate::platform::memlog("start");
-    let loaded = loaders::load_file(path, progress).map_err(|e| {
-        if e.downcast_ref::<Cancelled>().is_some() { "cancelled".to_owned() } else { format!("{e:#}") }
+    let loaded = loaders::load_file(path, progress, options).map_err(|e| {
+        if e.downcast_ref::<Cancelled>().is_some() {
+            LoadError::Cancelled
+        } else if let Some(missing) = e.downcast_ref::<BlenderNotFound>() {
+            LoadError::NeedsBlender(missing.to_string())
+        } else {
+            LoadError::Failed(format!("{e:#}"))
+        }
     })?;
     crate::platform::memlog("parsing and decoding");
     progress.set_stage("Uploading to GPU");
@@ -109,7 +141,7 @@ pub fn load_model(ctx: &Arc<GpuContext>, path: &std::path::Path, progress: &Prog
     let up = scene.up_axis;
     let animator = Animator::new(&scene);
     let upload = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| GpuScene::upload(ctx, &mut scene, root_matrix(up))));
-    let gpu = upload.map_err(|_| "The model could not be uploaded to the GPU".to_owned())?;
+    let gpu = upload.map_err(|_| LoadError::Failed("The model could not be uploaded to the GPU".to_owned()))?;
     crate::platform::memlog("GPU upload");
     // Wait (on this worker thread) for the upload to finish so wgpu releases
     // its staging memory now; an idle UI would otherwise keep it allocated.
@@ -138,19 +170,24 @@ pub fn load_model(ctx: &Arc<GpuContext>, path: &std::path::Path, progress: &Prog
 pub enum LoadOutcome {
     Pending,
     Done(Box<Model>),
-    Failed(String),
-    Cancelled,
+    Failed(LoadError),
 }
 
 pub struct LoadJob {
     pub path: PathBuf,
     pub progress: Arc<Progress>,
     pub started: Instant,
-    rx: Receiver<Result<Model, String>>,
+    rx: Receiver<Result<Model, LoadError>>,
 }
 
 impl LoadJob {
-    pub fn spawn(ctx: Arc<GpuContext>, path: PathBuf, generation: u64, repaint: impl Fn() + Send + 'static) -> LoadJob {
+    pub fn spawn(
+        ctx: Arc<GpuContext>,
+        path: PathBuf,
+        options: LoadOptions,
+        generation: u64,
+        repaint: impl Fn() + Send + 'static,
+    ) -> LoadJob {
         let progress = Arc::new(Progress::default());
         let (tx, rx) = channel();
         let job_path = path.clone();
@@ -160,7 +197,7 @@ impl LoadJob {
             // OpenCASCADE and some parsers recurse deeply on large assemblies.
             .stack_size(64 * 1024 * 1024)
             .spawn(move || {
-                let result = load_model(&ctx, &job_path, &job_progress, generation);
+                let result = load_model(&ctx, &job_path, &job_progress, &options, generation);
                 let _ = tx.send(result);
                 repaint();
             });
@@ -173,10 +210,9 @@ impl LoadJob {
     pub fn poll(&self) -> LoadOutcome {
         match self.rx.try_recv() {
             Ok(Ok(model)) => LoadOutcome::Done(Box::new(model)),
-            Ok(Err(msg)) if msg == "cancelled" => LoadOutcome::Cancelled,
-            Ok(Err(msg)) => LoadOutcome::Failed(msg),
+            Ok(Err(e)) => LoadOutcome::Failed(e),
             Err(TryRecvError::Empty) => LoadOutcome::Pending,
-            Err(TryRecvError::Disconnected) => LoadOutcome::Failed("The loader stopped unexpectedly".into()),
+            Err(TryRecvError::Disconnected) => LoadOutcome::Failed(LoadError::Failed("The loader stopped unexpectedly".into())),
         }
     }
 }

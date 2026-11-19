@@ -56,7 +56,7 @@ Compression=lzma2/ultra64
 SolidCompression=yes
 
 [Tasks]
-Name: "openwith"; Description: "Add 3D Viewer to ""Open with"" for 3D files (glTF, FBX, OBJ, STL, PLY, 3MF, STEP, IGES)"; GroupDescription: "File types:"
+Name: "openwith"; Description: "Add 3D Viewer to ""Open with"" for 3D files (glTF, FBX, OBJ, STL, PLY, 3MF, STEP, IGES, Blender)"; GroupDescription: "File types:"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]

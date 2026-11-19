@@ -113,6 +113,8 @@ pub struct Settings {
     pub point_size: f32,
     pub loop_animation: bool,
     pub recent: Vec<PathBuf>,
+    /// Blender program chosen for .blend files (None: found automatically).
+    pub blender_path: Option<PathBuf>,
 }
 
 impl Default for Settings {
@@ -127,6 +129,7 @@ impl Default for Settings {
             point_size: 3.0,
             loop_animation: true,
             recent: Vec::new(),
+            blender_path: None,
         }
     }
 }

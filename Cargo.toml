@@ -6,7 +6,7 @@ name = "viewer3d"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.89"
-description = "Fast, lightweight viewer for 3D files: glTF/GLB, FBX, OBJ, STL, PLY, 3MF, STEP, IGES"
+description = "Fast, lightweight viewer for 3D files: glTF/GLB, FBX, OBJ, STL, PLY, 3MF, STEP, IGES, Blender"
 license = "MIT"
 repository = "https://github.com/leniver/viewer3d"
 publish = false
@@ -39,6 +39,9 @@ occt-step = { path = "crates/occt-step", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.56"
+# Blender for .blend files: its version (file version resource) and a job
+# object that ends a running conversion when the viewer exits.
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_JobObjects", "Win32_System_Threading"] }
 
 [build-dependencies]
 winresource = "0.1"
