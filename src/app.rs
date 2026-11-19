@@ -854,7 +854,7 @@ impl ViewerApp {
                         if self.error_needs_blender && ui.button("Choose Blender…").clicked() {
                             choose_blender = true;
                         }
-                        if ui.button("✕").clicked() {
+                        if ui.button("×").on_hover_text("Close").clicked() {
                             close = true;
                         }
                     });
