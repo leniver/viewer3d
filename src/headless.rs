@@ -14,7 +14,7 @@ use std::path::PathBuf;
 
 pub const USAGE: &str = "viewer3d --render <model> <output.png> [--size WxH] [--yaw DEG] [--pitch DEG]
                  [--wire | --shaded-wire] [--light] [--flat] [--no-grid] [--no-edges]
-                 [--time SECONDS] [--up y|z] [--blender PATH] [--verbose]";
+                 [--time SECONDS] [--anim NAME|INDEX] [--up y|z] [--blender PATH] [--verbose]";
 
 struct Options {
     input: PathBuf,
@@ -29,6 +29,7 @@ struct Options {
     grid: bool,
     edges: bool,
     time: Option<f32>,
+    anim: Option<String>,
     up: Option<UpAxis>,
     blender: Option<PathBuf>,
     verbose: bool,
@@ -49,6 +50,7 @@ fn parse(args: &[String]) -> Result<Options> {
         grid: true,
         edges: true,
         time: None,
+        anim: None,
         up: None,
         blender: None,
         verbose: false,
@@ -68,6 +70,7 @@ fn parse(args: &[String]) -> Result<Options> {
             "--yaw" => o.yaw = Some(num(it.next(), "--yaw")?.to_radians()),
             "--pitch" => o.pitch = Some(num(it.next(), "--pitch")?.to_radians()),
             "--time" => o.time = Some(num(it.next(), "--time")?),
+            "--anim" => o.anim = Some(it.next().ok_or_else(|| anyhow!("--anim needs a name or an index"))?.clone()),
             "--blender" => o.blender = Some(PathBuf::from(it.next().ok_or_else(|| anyhow!("--blender needs a path"))?)),
             "--wire" => o.display = DisplayMode::Wireframe,
             "--shaded-wire" => o.display = DisplayMode::ShadedWireframe,
@@ -110,6 +113,15 @@ pub fn run(args: &[String]) -> Result<()> {
     let mut model = load_model(&ctx, &o.input, &progress, &options, 1)?;
     if let Some(up) = o.up {
         model.set_up(&ctx, up);
+    }
+    if let Some(want) = &o.anim {
+        let names: Vec<&str> = model.scene.animations.iter().map(|a| a.name.as_str()).collect();
+        model.anim.current = names
+            .iter()
+            .position(|n| n == want)
+            .or_else(|| want.parse::<usize>().ok().filter(|&i| i < names.len()))
+            .ok_or_else(|| anyhow!("no animation '{want}' (the model has: {names:?})"))?;
+        model.apply_pose(&ctx);
     }
     if let Some(t) = o.time {
         model.anim.time = t.clamp(0.0, model.duration());
