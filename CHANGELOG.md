@@ -5,7 +5,7 @@ All notable changes to 3D Viewer are listed here. The format follows
 [Semantic Versioning](https://semver.org/). The section of a version becomes
 the notes of its GitHub release.
 
-## [Unreleased]
+## [0.2.0] - 2026-11-19
 
 ### Added
 
@@ -49,4 +49,5 @@ First public release, for Windows 10 and 11 (64-bit).
 - No Linux build yet.
 - Draco and meshopt compressed glTF files and KTX2 textures are not supported.
 
+[0.2.0]: https://github.com/leniver/viewer3d/releases/tag/v0.2.0
 [0.1.0]: https://github.com/leniver/viewer3d/releases/tag/v0.1.0
