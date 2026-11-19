@@ -148,7 +148,6 @@ pub fn load_model(
     let _ = ctx.device.poll(eframe::wgpu::PollType::Wait { submission_index: None, timeout: Some(Duration::from_secs(10)) });
     crate::platform::memlog("GPU wait");
     let pose = animator.rest_pose();
-    let has_anim = !scene.animations.is_empty();
     Ok(Model {
         path: path.to_path_buf(),
         scene,
@@ -162,7 +161,8 @@ pub fn load_model(
         load_time: loaded.load_time,
         bounds: loaded.bounds,
         up,
-        anim: AnimState { current: 0, time: 0.0, playing: has_anim, speed: 1.0 },
+        // Animations wait for the user (Space or the play button).
+        anim: AnimState { current: 0, time: 0.0, playing: false, speed: 1.0 },
         generation,
     })
 }
