@@ -15,6 +15,7 @@ planned (all dependencies are cross-platform).
 | PLY | `.ply` (ASCII/binary, meshes and point clouds) | vertex colours, `TextureFile` | – |
 | 3MF | `.3mf` (incl. multi-file slicer projects) | colours, 2D textures | – |
 | STEP / IGES / BREP | `.step` `.stp` `.iges` `.igs` `.brep` | part/face colours, CAD edges | – |
+| Blender | `.blend` (needs Blender installed, see below) | as exported to glTF by Blender | actions, NLA tracks, shape keys, skeletal |
 
 Not supported yet: Draco / meshopt compressed glTF, KTX2 textures.
 
@@ -44,13 +45,40 @@ launch: *More info* → *Run anyway*. `SHA256SUMS.txt` lists the checksums.
 - `?` menu → *Add to "Open with" for 3D files* registers the app for the current
   user (no admin rights); then pick it once with "Always use this app".
 
+### Blender files
+
+`.blend` files are opened through Blender itself, which must be installed
+([blender.org](https://www.blender.org); tested with Blender 5.1 and 5.2):
+Blender starts in the background and exports the file to glTF, which the viewer
+then shows. This adds a few seconds to the loading time (Blender takes about
+3 s to start). The newest installed Blender is used; another one can be chosen
+in the `?` menu (*Choose Blender…*), or with `VIEWER3D_BLENDER=C:\path\to\blender.exe`
+or `--blender` on the command line. Blender runs with its factory settings and
+with Python auto-run disabled, so neither add-ons nor scripts stored in the
+file are executed, and the file is never modified.
+
+What is shown is what Blender's viewport shows: the visible objects of the
+active scene, with their modifiers applied. Huge flat planes used as render
+backdrops (ten times larger than everything else) are left out, as they would
+shrink the model to a dot. Animations are grouped as they play in Blender:
+
+- the actions playing on the objects become one clip, played first; with
+  several objects it is named after the words their action names share
+  (`dome_running` + `capsules_running` → `running`), otherwise after the scene;
+- each named NLA track becomes a clip (tracks of the same name on several
+  objects play together);
+- actions assigned to no object (kept with a fake user) are given back to the
+  object they were made for (Blender 4.4 and later); those of different objects
+  that end with the same words play together (`dome_jammed` + `capsules_jammed`
+  → `jammed`).
+
 Command line:
 
 ```text
 viewer3d [FILE]
 viewer3d --render <model> <out.png> [--size WxH] [--yaw DEG] [--pitch DEG]
          [--wire | --shaded-wire] [--light] [--flat] [--no-grid] [--no-edges]
-         [--time SECONDS] [--up y|z] [--verbose]
+         [--time SECONDS] [--anim NAME|INDEX] [--up y|z] [--blender PATH] [--verbose]
 viewer3d --register | --unregister
 ```
 
@@ -63,7 +91,9 @@ viewer3d --register | --unregister
   compute shader; mipmaps and wireframe indices are generated on the GPU.
 - The discrete GPU is preferred (NVIDIA first) on hybrid-graphics PCs.
 - Loaders: own readers for glTF accessors, STL, PLY and 3MF; `ufbx` for FBX/OBJ;
-  OpenCASCADE (static, through `crates/occt-step`) for STEP/IGES/BREP.
+  OpenCASCADE (static, through `crates/occt-step`) for STEP/IGES/BREP; an
+  installed Blender for `.blend` (`src/loaders/blend_export.py` runs inside it).
+  A conversion still running when the viewer exits is stopped with it.
 
 ## Performance (release build, RTX 4070 Ti, 16 logical CPUs)
 
@@ -79,7 +109,8 @@ viewer3d --register | --unregister
 Diagnostics (environment variables, off by default): `VIEWER3D_FPS=1` logs
 frames per second, `VIEWER3D_MEMLOG=1` logs memory after each loading stage,
 `VIEWER3D_TIMING=1` prints OpenCASCADE stage times, `WGPU_BACKEND=vulkan`
-forces a backend, `RUST_LOG=viewer3d=info` enables the log.
+forces a backend, `RUST_LOG=viewer3d=info` enables the log
+(`RUST_LOG=viewer3d=debug` also shows Blender's output for `.blend` files).
 
 ## Building
 
